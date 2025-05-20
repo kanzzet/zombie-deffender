@@ -19,8 +19,27 @@ function resizeCanvas() {
     }
 }
 
+// Initialize game when DOM is fully loaded
+document.addEventListener('DOMContentLoaded', function() {
+    // Set up event listeners
+    startButton.addEventListener('click', startGame);
+    startButton.addEventListener('touchend', function(e) {
+        e.preventDefault();
+        startGame();
+    });
+    
+    // Set up touch controls
+    setupTouchControls();
+    
+    // Initial resize
+    resizeCanvas();
+    
+    // Show start screen
+    startScreen.style.display = 'flex';
+});
+
+// Handle window resize
 window.addEventListener('resize', resizeCanvas);
-resizeCanvas();
 
 // Game state
 let gameRunning = false;
@@ -29,7 +48,8 @@ let zombies = [];
 let bullets = [];
 let items = [];
 let lastZombieTime = 0;
-let zombieSpawnInterval = 2000; // 2 seconds
+let zombieSpawnInterval = 2000;
+let shootInterval;
 
 // Touch controls
 let joystickActive = false;
@@ -39,21 +59,27 @@ let joystickX = 0;
 let joystickY = 0;
 const joystickRadius = 50;
 
-// Initialize touch controls
-joystick.addEventListener('touchstart', handleJoystickStart);
-joystick.addEventListener('touchmove', handleJoystickMove);
-joystick.addEventListener('touchend', handleJoystickEnd);
-shootBtn.addEventListener('touchstart', handleShootStart);
-shootBtn.addEventListener('touchend', handleShootEnd);
-
-// Prevent touch events from causing page scroll
-document.body.addEventListener('touchmove', function(e) {
-    if (gameRunning) {
-        e.preventDefault();
-    }
-}, { passive: false });
+function setupTouchControls() {
+    // Joystick controls
+    joystick.addEventListener('touchstart', handleJoystickStart);
+    joystick.addEventListener('touchmove', handleJoystickMove);
+    joystick.addEventListener('touchend', handleJoystickEnd);
+    
+    // Shoot button controls
+    shootBtn.addEventListener('touchstart', handleShootStart);
+    shootBtn.addEventListener('touchend', handleShootEnd);
+    
+    // Prevent touch events from causing page scroll
+    document.body.addEventListener('touchmove', function(e) {
+        if (gameRunning) {
+            e.preventDefault();
+        }
+    }, { passive: false });
+}
 
 function handleJoystickStart(e) {
+    if (!gameRunning) return;
+    
     const touch = e.touches[0];
     const rect = joystick.getBoundingClientRect();
     joystickStartX = rect.left + rect.width / 2;
@@ -63,7 +89,7 @@ function handleJoystickStart(e) {
 }
 
 function handleJoystickMove(e) {
-    if (!joystickActive) return;
+    if (!joystickActive || !gameRunning) return;
     
     const touch = e.touches[0];
     joystickX = touch.clientX - joystickStartX;
@@ -84,24 +110,26 @@ function handleJoystickEnd() {
     joystickActive = false;
     joystickX = 0;
     joystickY = 0;
-    joystickHandle.style.transform = 'translate(30px, 30px)';
+    joystickHandle.style.transform = 'translate(35px, 35px)';
 }
 
-function handleShootStart() {
-    if (gameRunning) {
-        player.shoot();
-        shootInterval = setInterval(player.shoot.bind(player), 300);
-    }
+function handleShootStart(e) {
+    if (!gameRunning) return;
+    e.preventDefault();
+    player.shoot();
+    shootInterval = setInterval(player.shoot.bind(player), 300);
 }
 
-function handleShootEnd() {
+function handleShootEnd(e) {
+    if (!gameRunning) return;
+    e.preventDefault();
     clearInterval(shootInterval);
 }
 
 // Player object
 const player = {
     x: 50,
-    y: canvas.height / 2,
+    y: 0, // Will be set in resizeCanvas
     width: 40,
     height: 64,
     speed: 5,
@@ -110,9 +138,8 @@ const player = {
     ammo: 30,
     maxAmmo: 30,
     lastShot: 0,
-    shootDelay: 300, // milliseconds
+    shootDelay: 300,
     
-    // Draw player (soldier)
     draw: function() {
         // Body
         ctx.fillStyle = '#4CAF50';
@@ -136,9 +163,7 @@ const player = {
         ctx.fillRect(this.x + 48, this.y + 16, 24, 8);
     },
     
-    // Update player position
     update: function() {
-        // Movement controls
         if (joystickActive) {
             this.x += joystickX * this.speed / joystickRadius;
             this.y += joystickY * this.speed / joystickRadius;
@@ -149,7 +174,6 @@ const player = {
         this.y = Math.max(0, Math.min(this.y, canvas.height - this.height));
     },
     
-    // Shoot bullet
     shoot: function() {
         const now = Date.now();
         if (this.ammo > 0 && now - this.lastShot > this.shootDelay) {
@@ -166,7 +190,6 @@ const player = {
         }
     },
     
-    // Take damage
     takeDamage: function(damage) {
         this.health -= damage;
         if (this.health <= 0) {
@@ -175,13 +198,11 @@ const player = {
         updateUI();
     },
     
-    // Heal player
     heal: function(amount) {
         this.health = Math.min(this.health + amount, this.maxHealth);
         updateUI();
     },
     
-    // Add ammo
     addAmmo: function(amount) {
         this.ammo = Math.min(this.ammo + amount, this.maxAmmo);
         updateUI();
@@ -202,7 +223,6 @@ function createZombie() {
         lastAttack: 0,
         attackDelay: 1000,
         
-        // Draw zombie
         draw: function() {
             // Body
             ctx.fillStyle = '#556B2F';
@@ -224,11 +244,9 @@ function createZombie() {
             ctx.fill();
         },
         
-        // Update zombie position
         update: function() {
             this.x -= this.speed;
             
-            // Check collision with player
             if (checkCollision(this, player)) {
                 const now = Date.now();
                 if (now - this.lastAttack > this.attackDelay) {
@@ -240,7 +258,6 @@ function createZombie() {
             return this.x + this.width < 0 || this.health <= 0;
         },
         
-        // Take damage
         takeDamage: function(damage) {
             this.health -= damage;
             return this.health <= 0;
@@ -248,14 +265,14 @@ function createZombie() {
     };
 }
 
-// Item object (health and ammo)
+// Item object
 function createItem(x, y, type) {
     return {
         x: x,
         y: y,
         width: 16,
         height: 16,
-        type: type, // 'health' or 'ammo'
+        type: type,
         
         draw: function() {
             if (this.type === 'health') {
@@ -305,13 +322,20 @@ function updateUI() {
 // Game over
 function gameOver() {
     gameRunning = false;
+    clearInterval(shootInterval);
+    
     startScreen.style.display = 'flex';
     startScreen.innerHTML = `
         <h1>GAME OVER</h1>
         <p>Skor Akhir: ${score}</p>
-        <button id="restartButton">Main Lagi</button>
+        <button id="restartButton" class="game-button">MAIN LAGI</button>
     `;
+    
     document.getElementById('restartButton').addEventListener('click', startGame);
+    document.getElementById('restartButton').addEventListener('touchend', function(e) {
+        e.preventDefault();
+        startGame();
+    });
 }
 
 // Game loop
@@ -321,7 +345,7 @@ function gameLoop() {
     // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    // Update player
+    // Update and draw player
     player.update();
     player.draw();
     
@@ -376,7 +400,6 @@ function gameLoop() {
                 if (zombies[j].takeDamage(1)) {
                     score++;
                     
-                    // Random chance to drop item
                     if (Math.random() < 0.2) {
                         const type = Math.random() < 0.5 ? 'health' : 'ammo';
                         items.push(createItem(zombies[j].x, zombies[j].y, type));
@@ -425,8 +448,3 @@ function startGame() {
     // Start game loop
     gameLoop();
 }
-
-// Initialize game
-startButton.addEventListener('click', startGame);
-startScreen.style.display = 'flex';
-gameUI.style.display = 'block';
